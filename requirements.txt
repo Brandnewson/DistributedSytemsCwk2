@@ -2,6 +2,7 @@
 # Ref: aka.ms/functions-azure-monitor-python
 # azure-monitor-opentelemetry
 
+python>=3.10,<3.11
 azure-functions
 pyodbc
 matplotlib
