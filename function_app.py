@@ -3,7 +3,8 @@ import logging
 import os
 import pyodbc
 import random
-from datetime import datetime
+import statistics
+import datetime
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
@@ -33,27 +34,22 @@ def DS_httpTrigger(req: func.HttpRequest) -> func.HttpResponse:
             })
         
         # Upsert sensor data in batches
-        upsert_sql = """
-        MERGE dbo.Sensors AS target
-        USING (VALUES (?, ?, ?, ?, ?)) AS source (SensorID, Temperature, Wind, RHumidity, CO2)
-        ON target.SensorID = source.SensorID
-        WHEN MATCHED THEN
-            UPDATE SET Temperature = source.Temperature, Wind = source.Wind, 
-                      RHumidity = source.RHumidity, CO2 = source.CO2
-        WHEN NOT MATCHED THEN
-            INSERT (SensorID, Temperature, Wind, RHumidity, CO2)
-            VALUES (source.SensorID, source.Temperature, source.Wind, source.RHumidity, source.CO2);
+        insert_sql = """
+        INSERT INTO dbo.Sensors (SensorID, Temperature, Wind, RHumidity, CO2, ReadingTime)
+        VALUES (?, ?, ?, ?, ?, ?)
         """
         
         total_records = 0
         with pyodbc.connect(conn_str) as conn:
             with conn.cursor() as cursor:
-                # Process in batches
                 for i in range(0, len(sensor_data), batch_size):
                     batch = sensor_data[i:i + batch_size]
-                    batch_params = [(d['SensorID'], d['Temperature'], d['Wind'], 
-                                   d['RHumidity'], d['CO2']) for d in batch]
-                    cursor.executemany(upsert_sql, batch_params)
+                    # Add a timestamp for each reading
+                    batch_params = [
+                        (d['SensorID'], d['Temperature'], d['Wind'], d['RHumidity'], d['CO2'], datetime.datetime.now())
+                        for d in batch
+                    ]
+                    cursor.executemany(insert_sql, batch_params)
                     total_records += len(batch)
                 conn.commit()
         
@@ -62,6 +58,71 @@ def DS_httpTrigger(req: func.HttpRequest) -> func.HttpResponse:
             status_code=200
         )
         
+    except Exception as e:
+        logging.error(f"Error: {e}")
+        return func.HttpResponse(f"Error: {str(e)}", status_code=500)
+
+def compute_statistics(values):
+    if not values:
+        return {"mean": None, "median": None, "max": None, "min": None}
+    return {
+        "mean": statistics.mean(values),
+        "median": statistics.median(values),
+        "max": max(values),
+        "min": min(values)
+    }
+
+@app.route(route="metricsPerSensor", auth_level=func.AuthLevel.ANONYMOUS)
+def metricsPerSensor(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info('Python HTTP trigger function processed a request.')
+
+    conn_str = os.environ.get("SQL_CONNECTION_STRING")
+    if not conn_str:
+        return func.HttpResponse("Database connection string not found", status_code=500)
+
+    try:
+        # Fetch all sensor readings grouped by SensorID
+        query = "SELECT SensorID, Temperature, Wind, RHumidity, CO2 FROM dbo.Sensors"
+        data = {}
+        with pyodbc.connect(conn_str) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query)
+                rows = cursor.fetchall()
+                for row in rows:
+                    sensor_id = row.SensorID
+                    if sensor_id not in data:
+                        data[sensor_id] = []
+                    data[sensor_id].append({
+                        "Temperature": row.Temperature,
+                        "Wind": row.Wind,
+                        "RHumidity": row.RHumidity,
+                        "CO2": row.CO2
+                    })
+
+        if not data:
+            return func.HttpResponse("No sensor data found.", status_code=404)
+
+        results = {}
+        for sensor_id, readings in data.items():
+            temperatures = [reading['Temperature'] for reading in readings]
+            wind_speeds = [reading['Wind'] for reading in readings]
+            rhumidities = [reading['RHumidity'] for reading in readings]
+            co2_levels = [reading['CO2'] for reading in readings]
+
+            results[sensor_id] = {
+                "Temperature": compute_statistics(temperatures),
+                "Wind": compute_statistics(wind_speeds),
+                "RHumidity": compute_statistics(rhumidities),
+                "CO2": compute_statistics(co2_levels)
+            }
+
+        print(results)
+
+        return func.HttpResponse(
+            "Sensor metrics analysis complete. Check logs for details.",
+            status_code=200
+        )
+
     except Exception as e:
         logging.error(f"Error: {e}")
         return func.HttpResponse(f"Error: {str(e)}", status_code=500)
