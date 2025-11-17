@@ -3,6 +3,6 @@
 # azure-monitor-opentelemetry
 
 azure-functions
-pyodbc
 matplotlib
 pandas
+pymssql
