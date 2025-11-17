@@ -11,7 +11,7 @@ app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
 @app.route(route="DS_httpTrigger")
 
-### TASK 1: HTTP Trigger Function and Sensor metrics function
+### TASK 1: HTTP Trigger Function
 def DS_httpTrigger(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
     
@@ -68,6 +68,7 @@ def DS_httpTrigger(req: func.HttpRequest) -> func.HttpResponse:
         logging.error(f"Error: {e}")
         return func.HttpResponse(f"Error: {str(e)}", status_code=500)
 
+### TASK 2: HTTP Trigger Function for Sensor Metrics
 def compute_statistics(values):
     if not values:
         return {"mean": None, "median": None, "max": None, "min": None}
@@ -134,7 +135,7 @@ def metricsPerSensor(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(f"Error: {str(e)}", status_code=500)
 
 
-### TASK 2: SQL Trigger and Timer Trigger Functions
+### TASK 3: SQL Trigger and Timer Trigger Functions
 @app.schedule(schedule="*/10 * * * * *", arg_name="timer", run_on_startup=True, use_monitor=True)
 def timer_trigger(timer: func.TimerRequest) -> None:
     logging.info('Timer trigger function executed at %s', datetime.datetime.now())
