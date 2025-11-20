@@ -51,7 +51,7 @@ def DS_httpTrigger(req: func.HttpRequest) -> func.HttpResponse:
         # Insert sensor data in batches
         insert_sql = """
         INSERT INTO dbo.Sensors (SensorID, Temperature, Wind, RHumidity, CO2, ReadingTime)
-        VALUES (%d, %f, %f, %f, %f, %s)
+        VALUES (%s, %s, %s, %s, %s, %s)
         """
         
         total_records = 0
@@ -92,27 +92,35 @@ def compute_statistics(values):
 def metricsPerSensor(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
 
-    conn_str = os.environ.get("SQL_CONNECTION_STRING")
-    if not conn_str:
-        return func.HttpResponse("Database connection string not found", status_code=500)
+    # Parse the connection string into individual components
+    conn_str = {
+        "server": os.environ.get("SQL_SERVER"),
+        "user": os.environ.get("SQL_USER"),
+        "password": os.environ.get("SQL_PASSWORD"),
+        "database": os.environ.get("SQL_DATABASE")
+    }
+
+    # Ensure all required fields are present
+    if not all(conn_str.values()):
+        return func.HttpResponse("Database connection parameters are missing", status_code=500)
 
     try:
         # Fetch all sensor readings grouped by SensorID
         query = "SELECT SensorID, Temperature, Wind, RHumidity, CO2 FROM dbo.Sensors"
         data = {}
         with pymssql.connect(**conn_str) as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(as_dict=True) as cursor:  # Use as_dict=True
                 cursor.execute(query)
                 rows = cursor.fetchall()
                 for row in rows:
-                    sensor_id = row.SensorID
+                    sensor_id = row['SensorID']  # Access by column name
                     if sensor_id not in data:
                         data[sensor_id] = []
                     data[sensor_id].append({
-                        "Temperature": row.Temperature,
-                        "Wind": row.Wind,
-                        "RHumidity": row.RHumidity,
-                        "CO2": row.CO2
+                        "Temperature": row['Temperature'],
+                        "Wind": row['Wind'],
+                        "RHumidity": row['RHumidity'],
+                        "CO2": row['CO2']
                     })
 
         if not data:
@@ -144,7 +152,7 @@ def metricsPerSensor(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(f"Error: {str(e)}", status_code=500)
 
 
-### TASK 3: SQL Trigger and Timer Trigger Functions
+## TASK 3: SQL Trigger and Timer Trigger Functions
 @app.schedule(schedule="*/10 * * * * *", arg_name="timer", run_on_startup=True, use_monitor=True)
 def timer_trigger(timer: func.TimerRequest) -> None:
     with tracer.span(name="timer_trigger"):
